@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Signal Siege</title>
+<meta name="color-scheme" content="dark">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a1114;--pn:#121c21;--ln:#27383f;--tx:#d9e7e4;--mu:#86a09b;--am:#ffb020;--cy:#38e0c8;--ice:#7cc8ff;--rd:#ff5a47;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 'IBM Plex Mono',ui-monospace,monospace;overflow-x:hidden}
+body{padding:env(safe-area-inset-top) 8px calc(10px + env(safe-area-inset-bottom))}
+#app{max-width:960px;margin:0 auto}
+h1,h2,.hd,button{font-family:'Chakra Petch',system-ui,sans-serif}
+#hud{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0}
+.st{flex:1 1 70px;background:var(--pn);border:1px solid var(--ln);padding:4px 8px;min-width:0}
+.st small{display:block;color:var(--mu);font-size:11px}
+.st b{font:700 18px 'Chakra Petch',sans-serif}
+#money b{color:var(--am)}#lives b{color:var(--rd)}#score b{color:var(--cy)}
+button{background:var(--pn);color:var(--tx);border:1px solid var(--ln);padding:8px 12px;font-size:15px;font-weight:500;cursor:pointer;min-height:44px;touch-action:manipulation}
+button:hover{border-color:var(--cy)}button:focus-visible{outline:2px solid var(--am);outline-offset:2px}
+button.pri{background:var(--am);color:#1a1200;border-color:var(--am);font-weight:700;padding:10px 26px}
+#stage{position:relative}
+canvas{width:100%;height:auto;display:block;border:1px solid var(--ln);touch-action:manipulation;background:#0d171b}
+.ov{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(8,14,16,.92);text-align:center;padding:12px;overflow:auto}
+.ov.on{display:flex}
+.ov h1{font-size:clamp(32px,8vw,60px);margin:0;letter-spacing:.04em}
+.ov h2{font-size:clamp(24px,6vw,36px);margin:0}
+.ov p{margin:0;max-width:46ch;color:var(--mu);font-size:13px}
+.credit{color:var(--am)!important}
+#bar{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.tb{text-align:left;display:flex;flex-direction:column;gap:2px;border-left:5px solid var(--c)}
+.tb span{font:400 11px 'IBM Plex Mono',monospace;color:var(--mu)}
+.tb.on{background:#1b2b31;border-color:var(--cy);border-left-color:var(--c)}
+.tb.no{opacity:.55}
+#panel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;min-height:44px;background:var(--pn);border:1px solid var(--ln);padding:4px 8px}
+#msg{flex:1 1 140px;color:var(--mu);font-size:12px}
+footer{text-align:center;color:var(--mu);margin-top:12px;font-size:12px}
+@media(max-width:520px){.st b{font-size:16px}.tb{padding:6px}}
+</style></head><body><div id="app">
+<div id="hud">
+<div class="st" id="money"><small>Money</small><b>0</b></div>
+<div class="st" id="lives"><small>Lives</small><b>10</b></div>
+<div class="st" id="wave"><small>Wave</small><b>0</b></div>
+<div class="st" id="score"><small>Score</small><b>0</b></div>
+<button id="pauseBtn" aria-label="Pause (P)">Pause</button>
+</div>
+<div id="stage"><canvas id="c" width="960" height="480" aria-label="Signal Siege game board"></canvas>
+<div class="ov on" id="ovStart"><h1 class="hd">Signal Siege</h1>
+<p>Enemies cross five lanes toward your base. Place towers on tiles, earn money from kills, and hold the line for as long as you can.</p>
+<p>Select a tower (keys 1-3), then tap a tile. Tap a placed tower to upgrade or sell it. Every 5th wave brings a boss.</p>
+<button class="pri" id="startBtn">Start game</button>
+<p>Best score: <b id="bestS">0</b></p>
+<p class="credit">Developed by S YASHAS</p></div>
+<div class="ov" id="ovPause"><h2 class="hd">Paused</h2><button class="pri" id="resBtn">Resume</button></div>
+<div class="ov" id="ovOver"><h2 class="hd">Base lost</h2>
+<p id="overTxt"></p><button class="pri" id="againBtn">Play again</button></div>
+</div>
+<div id="bar"></div>
+<div id="panel"><span id="msg">Pick a tower, then tap an empty tile.</span>
+<button id="upBtn" style="display:none"></button><button id="sellBtn" style="display:none"></button></div>
+<footer>Developed by S YASHAS</footer>
+</div>
+<script>
+(function(){
+'use strict';
+var C=document.getElementById('c'),X=C.getContext('2d'),W=960,H=480,T=96,OX=96,COLS=9,LANES=5;
+var TW={
+ pulse:{n:'Pulse',cost:50,dmg:6,cd:.35,col:'#38e0c8',d:'fast, low dmg'},
+ frost:{n:'Frost',cost:75,dmg:1,cd:.9,col:'#7cc8ff',d:'slows lane'},
+ cannon:{n:'Cannon',cost:150,dmg:40,cd:1.8,col:'#ffb020',d:'slow, heavy'}};
+var KEYS=['pulse','frost','cannon'];
+var ED={normal:{hp:30,sp:45,ar:0,rw:8,r:20,col:'#ff6b57',n:4,rot:Math.PI/4,dm:1},
+ fast:{hp:20,sp:92,ar:0,rw:7,r:17,col:'#ff9f2e',n:3,rot:Math.PI,dm:1},
+ armored:{hp:75,sp:34,ar:4,rw:15,r:23,col:'#8fa3ad',n:6,rot:0,dm:1},
+ boss:{hp:520,sp:26,ar:5,rw:100,r:36,col:'#ff3d5a',n:8,rot:Math.PI/8,dm:3}};
+var S='start',G,sel='pulse',selT=null,hov=null,best=0,last=0,msgT=0;
+try{best=+localStorage.getItem('signalSiegeBest')||0}catch(e){}
+var $=function(i){return document.getElementById(i)};
+function reset(){G={money:150,lives:10,wave:0,kills:0,score:0,towers:[],en:[],pr:[],pa:[],q:[],sp:0,gap:1,brk:1.5,act:false,ban:0,bt:'',shake:0,acc:0};selT=null;}
+function say(t){$('msg').textContent=t;msgT=3}
+function setS(s){S=s;['Start','Pause','Over'].forEach(function(n){$('ov'+n).classList.toggle('on',s===n.toLowerCase())});}
+function startGame(){reset();setS('play');say('Pick a tower, then tap an empty tile.')}
+function togglePause(){if(S==='play')setS('pause');else if(S==='pause')setS('play')}
+function startWave(){var w=++G.wave,boss=w%5===0,n=4+Math.floor(w*1.8),i,r,t;G.q=[];
+ for(i=0;i<n;i++){r=Math.random();t='normal';if(w>=2&&r<.3)t='fast';else if(w>=3&&r>.68)t='armored';G.q.push(t)}
+ if(boss)G.q.splice(Math.floor(n/2),0,'boss');
+ G.gap=Math.max(.45,1.3-w*.05);G.sp=0;G.act=true;G.ban=2.4;G.bt=boss?'Boss wave '+w:'Wave '+w+' incoming'}
+function spawn(t){var d=ED[t],w=G.wave;G.en.push({t:t,lane:Math.floor(Math.random()*LANES),x:W+d.r,hp:d.hp*(1+.15*(w-1)),mh:0,sp:d.sp*(1+.02*w),ar:d.ar,rw:d.rw+Math.floor(w/3),r:d.r,fl:0,sl:0,sf:1});var e=G.en[G.en.length-1];e.mh=e.hp}
+function burst(x,y,c,n,s){for(var i=0;i<n;i++){var a=Math.random()*6.28,v=(.3+Math.random())*s;G.pa.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:.4+Math.random()*.3,c:c})}}
+function tAt(c,r){for(var i=0;i<G.towers.length;i++){var t=G.towers[i];if(t.c===c&&t.r===r)return t}return null}
+function upCost(t){return Math.round(TW[t.k].cost*.8*t.lv)}
+function sellVal(t){return Math.floor(t.inv*.6)}
+function upgrade(){var t=selT;if(!t||S!=='play')return;if(t.lv>=3){say('Already max level.');return}
+ var c=upCost(t);if(G.money<c){say('Need $'+c+' to upgrade.');return}G.money-=c;t.inv+=c;t.lv++;burst(t.x,t.y,TW[t.k].col,14,120);say(TW[t.k].n+' upgraded to level '+t.lv+'.')}
+function sell(){var t=selT;if(!t||S!=='play')return;G.money+=sellVal(t);burst(t.x,t.y,'#ffb020',12,100);G.towers.splice(G.towers.indexOf(t),1);selT=null;say('Tower sold.')}
+function place(c,r){var k=sel,d=TW[k];if(G.money<d.cost){say('Need $'+d.cost+' for a '+d.n+' tower.');return}
+ G.money-=d.cost;G.towers.push({k:k,c:c,r:r,x:OX+c*T+T/2,y:r*T+T/2,lv:1,cd:.3,inv:d.cost,rc:0});burst(OX+c*T+T/2,r*T+T/2,d.col,10,90)}
+function pos(ev){var b=C.getBoundingClientRect(),s=W/b.width,x=(ev.clientX-b.left)*s,y=(ev.clientY-b.top)*s;return{c:Math.floor((x-OX)/T),r:Math.floor(y/T)}}
+C.addEventListener('pointerdown',function(ev){if(S!=='play')return;var p=pos(ev);if(p.c<0||p.c>=COLS||p.r<0||p.r>=LANES){selT=null;return}
+ var t=tAt(p.c,p.r);if(t){selT=t;say(TW[t.k].n+' tower, level '+t.lv)}else{selT=null;place(p.c,p.r)}});
+C.addEventListener('pointermove',function(ev){hov=pos(ev)});C.addEventListener('pointerleave',function(){hov=null});
+function selType(k){sel=k;selT=null;say(TW[k].n+' selected. Tap an empty tile.')}
+document.addEventListener('keydown',function(e){var k=e.key.toLowerCase();
+ if(k==='p'){togglePause();return}
+ if((k==='enter'||k===' ')&&S!=='play'&&e.target.tagName!=='BUTTON'){if(S==='pause')setS('play');else startGame();e.preventDefault();return}
+ if(S!=='play')return;
+ if(k==='1'||k==='2'||k==='3')selType(KEYS[+k-1]);else if(k==='u')upgrade();else if(k==='x')sell();else if(k==='escape')selT=null});
+document.addEventListener('visibilitychange',function(){if(document.hidden&&S==='play')setS('pause')});
+$('startBtn').onclick=startGame;$('againBtn').onclick=startGame;$('resBtn').onclick=function(){setS('play')};$('pauseBtn').onclick=togglePause;
+$('upBtn').onclick=upgrade;$('sellBtn').onclick=sell;
+KEYS.forEach(function(k,i){var d=TW[k],b=document.createElement('button');b.className='tb';b.style.setProperty('--c',d.col);b.id='tb'+k;
+ b.innerHTML=(i+1)+'. '+d.n+' $'+d.cost+'<span>'+d.d+'</span>';b.onclick=function(){selType(k)};$('bar').appendChild(b)});
+function over(){G.lives=0;if(G.score>best){best=G.score;try{localStorage.setItem('signalSiegeBest',String(best))}catch(e){}}
+ $('overTxt').textContent='Wave '+G.wave+' reached. '+G.kills+' enemies destroyed. Score '+G.score+'. Best '+best+'.';$('bestS').textContent=best;setS('over')}
+function update(dt){
+ G.acc+=dt;if(G.acc>=2){G.acc-=2;G.money+=5}
+ if(G.ban>0)G.ban-=dt;if(G.shake>0)G.shake-=dt;
+ if(G.q.length){G.sp-=dt;if(G.sp<=0){spawn(G.q.shift());G.sp=G.gap}}
+ else if(!G.en.length){if(G.act){G.act=false;G.score+=100*G.wave;G.money+=15+G.wave*3;G.brk=3.2}G.brk-=dt;if(G.brk<=0)startWave()}
+ G.towers.forEach(function(t){var d=TW[t.k];t.cd-=dt;if(t.rc>0)t.rc-=dt;if(t.cd>0)return;
+  var tg=null;G.en.forEach(function(e){if(e.lane===t.r&&e.x>t.x&&e.x<W&&(!tg||e.x<tg.x))tg=e});
+  if(!tg)return;var f=t.lv-1;t.cd=d.cd*(1-.14*f);t.rc=.12;
+  G.pr.push({lane:t.r,x:t.x+22,y:t.y,k:t.k,dmg:d.dmg*(1+.6*f),sf:.5-.08*f})});
+ for(var i=G.pr.length-1;i>=0;i--){var p=G.pr[i];p.x+=(p.k==='cannon'?520:760)*dt;var hit=null;
+  for(var j=0;j<G.en.length;j++){var e=G.en[j];if(e.lane===p.lane&&Math.abs(e.x-p.x)<e.r+6){hit=e;break}}
+  if(hit){dmg(hit,p.dmg,p.k);burst(p.x,p.y,TW[p.k].col,p.k==='cannon'?12:5,p.k==='cannon'?200:110);
+   if(p.k==='frost'){hit.sl=1.8;hit.sf=p.sf}
+   if(p.k==='cannon')G.en.forEach(function(o){if(o!==hit&&o.lane===p.lane&&Math.abs(o.x-hit.x)<70)dmg(o,p.dmg*.5,'cannon')});
+   G.pr.splice(i,1)}else if(p.x>W+30)G.pr.splice(i,1)}
+ for(i=G.en.length-1;i>=0;i--){var e=G.en[i];if(e.fl>0)e.fl-=dt;if(e.sl>0)e.sl-=dt;
+  e.x-=e.sp*(e.sl>0?e.sf:1)*dt;
+  if(e.hp<=0){G.money+=e.rw;G.kills++;G.score+=e.t==='boss'?100:10;burst(e.x,OX/2+e.lane*T+T/2-OX/2+0,ED[e.t].col,e.t==='boss'?40:14,180);G.en.splice(i,1);continue}
+  if(e.x<OX){G.lives-=ED[e.t].dm;G.shake=.3;burst(OX,e.lane*T+T/2,'#ff5a47',20,200);G.en.splice(i,1);if(G.lives<=0){over();return}}}
+ for(i=G.pa.length-1;i>=0;i--){var q=G.pa[i];q.x+=q.vx*dt;q.y+=q.vy*dt;q.l-=dt;if(q.l<=0)G.pa.splice(i,1)}
+}
+function dmg(e,d,k){var a=k==='cannon'?e.ar*.3:e.ar;e.hp-=Math.max(1,d-a);e.fl=.1}
+function poly(x,y,r,n,rot){X.beginPath();for(var i=0;i<n;i++){var a=rot+i*6.2832/n;X[i?'lineTo':'moveTo'](x+Math.cos(a)*r,y+Math.sin(a)*r)}X.closePath()}
+function drawTower(t,s){var c=TW[t.k].col,x=t.x,y=t.y,rc=t.rc>0?3:0;
+ X.fillStyle='#16242a';X.strokeStyle=c;X.lineWidth=2;X.fillRect(x-30,y-30,60,60);X.strokeRect(x-30,y-30,60,60);
+ X.fillStyle=c;
+ if(t.k==='pulse'){X.beginPath();X.arc(x-rc,y,15,0,6.283);X.fill();X.fillRect(x,y-3,24,6)}
+ else if(t.k==='frost'){poly(x,y,19,4,0);X.fill();X.fillStyle='#16242a';poly(x,y,8,4,0);X.fill()}
+ else{X.fillRect(x-17,y-15,26,30);X.fillRect(x+4-rc*2,y-7,26,14)}
+ for(var i=0;i<t.lv;i++){X.fillStyle='#fff';X.fillRect(x-24+i*9,y+22,6,4)}
+ if(s){X.strokeStyle='#fff';X.setLineDash([5,4]);X.strokeRect(x-34,y-34,68,68);X.setLineDash([])}}
+function draw(){
+ X.save();if(G.shake>0)X.translate((Math.random()-.5)*8,(Math.random()-.5)*8);
+ X.fillStyle='#0d171b';X.fillRect(0,0,W,H);
+ for(var r=0;r<LANES;r++){X.fillStyle=r%2?'#101c21':'#13222a';X.fillRect(OX,r*T,W-OX,T)}
+ X.strokeStyle='#203239';X.lineWidth=1;X.beginPath();
+ for(var c=0;c<=COLS;c++){X.moveTo(OX+c*T+.5,0);X.lineTo(OX+c*T+.5,H)}
+ for(r=0;r<=LANES;r++){X.moveTo(OX,r*T+.5);X.lineTo(W,r*T+.5)}X.stroke();
+ X.fillStyle='#1b2f36';X.fillRect(0,0,OX,H);X.fillStyle='#38e0c8';X.fillRect(OX-6,0,6,H);
+ for(r=0;r<LANES;r++){X.strokeStyle='#38e0c8';X.lineWidth=2;poly(OX/2-6,r*T+T/2,22,4,Math.PI/4);X.stroke();X.beginPath();X.arc(OX/2-6,r*T+T/2,6,0,6.283);X.fillStyle='#38e0c8';X.fill()}
+ if(hov&&S==='play'&&hov.c>=0&&hov.c<COLS&&hov.r>=0&&hov.r<LANES){X.fillStyle=tAt(hov.c,hov.r)?'rgba(255,255,255,.08)':(G.money>=TW[sel].cost?'rgba(56,224,200,.16)':'rgba(255,90,71,.16)');X.fillRect(OX+hov.c*T,hov.r*T,T,T)}
+ G.towers.forEach(function(t){drawTower(t,t===selT)});
+ G.en.forEach(function(e){var d=ED[e.t],y=e.lane*T+T/2;
+  X.fillStyle=e.fl>0?'#fff':d.col;poly(e.x,y,e.r,d.n,d.rot);X.fill();
+  X.lineWidth=e.t==='armored'||e.t==='boss'?4:2;X.strokeStyle=e.sl>0?'#7cc8ff':'#0a1114';X.stroke();
+  var w=e.r*1.6;X.fillStyle='#0a1114';X.fillRect(e.x-w/2,y-e.r-9,w,5);X.fillStyle=e.t==='boss'?'#ff3d5a':'#9bffb0';X.fillRect(e.x-w/2,y-e.r-9,w*Math.max(0,e.hp/e.mh),5)});
+ G.pr.forEach(function(p){X.fillStyle=TW[p.k].col;if(p.k==='cannon'){X.beginPath();X.arc(p.x,p.y,8,0,6.283);X.fill()}else X.fillRect(p.x-6,p.y-3,12,6)});
+ G.pa.forEach(function(q){X.globalAlpha=Math.max(0,q.l*2);X.fillStyle=q.c;X.fillRect(q.x-2,q.y-2,4,4)});X.globalAlpha=1;
+ if(G.ban>0&&S==='play'){var a=Math.min(1,G.ban),bx=G.ban>2?(2.4-G.ban)*2.5:1;X.globalAlpha=a;X.fillStyle='rgba(10,17,20,.82)';X.fillRect(0,H/2-44,W,88);
+  X.fillStyle=G.bt.indexOf('Boss')===0?'#ff5a47':'#ffb020';X.fillRect(0,H/2-44,W,3);X.fillRect(0,H/2+41,W,3);
+  X.font='700 44px "Chakra Petch",sans-serif';X.textAlign='center';X.textBaseline='middle';X.fillText(G.bt,W/2+(1-bx)*-120,H/2);X.globalAlpha=1}
+ X.restore()}
+function ui(){var q=function(i,v){var n=$(i).lastChild;if(n.textContent!==String(v))n.textContent=v};
+ q('money','$'+Math.floor(G.money));q('lives',G.lives);q('wave',G.wave);q('score',G.score);$('bestS').textContent=best;
+ KEYS.forEach(function(k){var b=$('tb'+k);b.classList.toggle('on',k===sel&&!selT);b.classList.toggle('no',G.money<TW[k].cost)});
+ var u=$('upBtn'),s=$('sellBtn');u.style.display=s.style.display=selT?'':'none';
+ if(selT){u.textContent=selT.lv>=3?'Max level':'Upgrade $'+upCost(selT)+' (U)';u.disabled=selT.lv>=3||G.money<upCost(selT);s.textContent='Sell +$'+sellVal(selT)+' (X)'}
+ $('pauseBtn').textContent=S==='pause'?'Resume':'Pause'}
+function loop(ts){var dt=Math.min(.05,(ts-last)/1000||0);last=ts;
+ if(S==='play')update(dt);if(msgT>0&&S==='play'){msgT-=dt}
+ draw();ui();requestAnimationFrame(loop)}
+reset();$('bestS').textContent=best;requestAnimationFrame(loop);
+})();
+</script></body></html>
